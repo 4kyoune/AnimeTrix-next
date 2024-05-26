@@ -1,66 +1,123 @@
-import React, { Suspense } from "react";
-import { ChevronRight } from "lucide-react";
-import Link from "next/link";
+import BaseLayout from "@/components/layouts/BaseLayout";
+import { SubscriptionContextProvider } from "@/contexts/SubscriptionContext";
+import { GA_TRACKING_ID, pageview } from "@/lib/gtag";
+import "@/styles/index.css";
+import { appWithTranslation } from "next-i18next";
+import nextI18nextConfig from "next-i18next.config";
+import { AppProps } from "next/app";
+import Router from "next/router";
+import Script from "next/script";
+import NProgress from "nprogress";
+import React, { useEffect, useState } from "react";
+import { QueryClient, QueryClientProvider } from "react-query";
+import { ReactQueryDevtools } from "react-query/devtools";
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.min.css";
+import { ErrorBoundary } from "react-error-boundary";
+import { AppErrorFallback } from "@/components/shared/AppErrorFallback";
+import { supabaseClient } from "@supabase/auth-helpers-nextjs";
+import { UserProvider } from "@supabase/auth-helpers-react";
+import GlobalPlayerContextProvider from "@/contexts/GlobalPlayerContext";
+import AuthContext, { AuthContextProvider } from "@/contexts/AuthContext";
 
-import Slider from "../components/shared/Slider";
+Router.events.on("routeChangeStart", NProgress.start);
+Router.events.on("routeChangeComplete", NProgress.done);
+Router.events.on("routeChangeError", NProgress.done);
 
-import AiringScheduleLoading from "@/components/loading/AiringScheduleLoading";
-import { UpcomingSeasonLoading } from "@/components/loading/UpcomingSeasonLoading";
-import AiringSchedule from "@/components/shared/airingschedule/AiringSchedule";
-import Cards from "@/components/shared/cards/Cards";
-import UpcomingSeason from "@/components/shared/upcomingSeason/UpcomingSeason";
-import { getPopularAnime, getTrendingAnime } from "@/lib/AnimeFetch";
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,
+      refetchOnReconnect: false,
+      retry: 1,
+    },
+  },
+});
 
-export function generateMetadata() {
-    return {
-        title: "Animetrix - Your Premier Source for Free Anime Downloads and Streaming",
-        description: "Discover the ultimate anime experience at Animetrix! Enjoy free anime downloads and streaming of the latest series and timeless classics. Dive into our vast collection now!",
-        openGraph: {
-            images: "https://cdn.discordapp.com/attachments/1079039236302446705/1166676085883285544/animetrixbanner.jpg?ex=654b5ac6&is=6538e5c6&hm=6d9c8c991b0897a33364a58aeea177e53c26216c617b6dff9b5de7607b9bf332&",
-        },
+interface WorkaroundAppProps extends AppProps {
+  err: any;
+}
+
+function App({ Component, pageProps, router, err }: WorkaroundAppProps) {
+  const [errorInfo, setErrorInfo] = useState<React.ErrorInfo>(null);
+
+  useEffect(() => {
+    const handleRouteChange = (url: string) => {
+      pageview(url);
     };
+
+    router.events.on("routeChangeComplete", handleRouteChange);
+
+    return () => {
+      router.events.off("routeChangeComplete", handleRouteChange);
+    };
+  }, [router.events]);
+
+  const getLayout =
+    // @ts-ignore
+    Component.getLayout || ((page) => <BaseLayout>{page}</BaseLayout>);
+
+  return (
+    <React.Fragment>
+      {/* A placeholder to integrate MAL-Sync (https://github.com/MALSync/MALSync)*/}
+      <script id="syncData" type="application/json"></script>
+
+      <Script
+        strategy="afterInteractive"
+        src={`https://www.googletagmanager.com/gtag/js?id=${GA_TRACKING_ID}`}
+      />
+
+      <Script id="google-analytics" strategy="afterInteractive">
+        {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', '${GA_TRACKING_ID}', {
+              page_path: window.location.pathname,
+            });
+        `}
+      </Script>
+
+      <ToastContainer
+        position="bottom-left"
+        autoClose={5000}
+        hideProgressBar={true}
+        newestOnTop={true}
+        closeOnClick
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="dark"
+      />
+
+      <QueryClientProvider client={queryClient}>
+        <AuthContextProvider>
+          <SubscriptionContextProvider>
+            <GlobalPlayerContextProvider>
+              <ErrorBoundary
+                onError={(error, info) => {
+                  setErrorInfo(info);
+                }}
+                fallbackRender={(fallbackProps) => {
+                  return (
+                    <AppErrorFallback
+                      {...fallbackProps}
+                      errorInfo={errorInfo}
+                    />
+                  );
+                }}
+              >
+                {getLayout(<Component {...pageProps} err={err} />)}
+              </ErrorBoundary>
+            </GlobalPlayerContextProvider>
+          </SubscriptionContextProvider>
+        </AuthContextProvider>
+
+        {process.env.NODE_ENV === "development" && <ReactQueryDevtools />}
+      </QueryClientProvider>
+    </React.Fragment>
+  );
 }
-export default async function page() {
-    const Trending = await getTrendingAnime();
-    const Popular = await getPopularAnime();
 
-    return (
-        <div className="p-4  md:pb-28 text-xl font-semibold flex-1 h-screen">
-            <Slider Trending={Trending} />
-
-            <div className="flex flex-col mt-9">
-                <div className="flex justify-between items-center">
-                    <h1 className="text-3xl lg:text-5xl font-bold">Popular</h1>
-                    <Link href={"/popular"} className=" flex items-center gap-2 font-extrabold text-sm md:text-xl">
-                        Load more
-                        <ChevronRight size={30} />
-                    </Link>
-                </div>
-                <div className="flex gap-2">
-                    <Cards props={Popular} />
-                </div>
-            </div>
-
-            <div className="flex flex-col mt-9">
-                <div className="flex justify-between items-center">
-                    <h1 className="text-3xl lg:text-5xl font-bold">Trending</h1>
-                    <Link href={"/trending"} className=" flex gap-2 items-center font-extrabold text-sm md:text-xl">
-                        Load more
-                        <ChevronRight size={30} />
-                    </Link>
-                </div>
-                <div className="flex gap-2">
-                    <Cards props={Trending} />
-                </div>
-            </div>
-
-            <Suspense fallback={<UpcomingSeasonLoading />}>
-                <UpcomingSeason />
-            </Suspense>
-
-            <Suspense fallback={<AiringScheduleLoading />}>
-                <AiringSchedule />
-            </Suspense>
-        </div>
-    );
-}
+export default appWithTranslation(App, nextI18nextConfig);
